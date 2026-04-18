@@ -1,9 +1,15 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  openImage: () => ipcRenderer.invoke('dialog:open-image'),
-  openProject: () => ipcRenderer.invoke('dialog:open-project'),
-  detectCorners: (payload) => ipcRenderer.invoke('corners:detect', payload),
-  saveProject: (payload) => ipcRenderer.invoke('project:save', payload),
-  exportMask: (payload) => ipcRenderer.invoke('project:export-mask', payload)
+  dialogs: {
+    openImage: () => ipcRenderer.invoke('dialogs:open-image'),
+    openProject: () => ipcRenderer.invoke('dialogs:open-project')
+  },
+  projects: {
+    save: (payload) => ipcRenderer.invoke('projects:save', payload)
+  },
+  worker: {
+    detectCorners: (payload) => ipcRenderer.invoke('worker:detect-corners', payload),
+    exportMask: (payload) => ipcRenderer.invoke('worker:export-mask', payload)
+  }
 });

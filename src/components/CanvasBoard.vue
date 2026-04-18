@@ -1,28 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, toRef, ref } from 'vue';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type {
   CornerPoint,
   DraftState,
   ImageAsset,
-  Point,
   ThemeMode,
   WallStroke
 } from '@/types/project';
-import { clamp, distance, flattenPoints, roundPoint } from '@/utils/geometry';
-
-interface DraftWall {
-  widthPx: number;
-  points: Array<{ x: number; y: number; cornerId?: string | null }>;
-}
-
-type SnapSource = 'candidate-corner' | 'wall-endpoint';
-
-interface SnapCandidate extends Point {
-  id: string;
-  source: SnapSource;
-  cornerId?: string | null;
-}
+import { useCanvasDraft } from '@/composables/canvas/useCanvasDraft';
+import { useCanvasImage } from '@/composables/canvas/useCanvasImage';
+import { useCanvasViewport } from '@/composables/canvas/useCanvasViewport';
 
 const props = defineProps<{
   image: ImageAsset | null;
@@ -44,87 +32,74 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLDivElement | null>(null);
 const stageRef = ref<any>(null);
-const imageElement = ref<HTMLImageElement | null>(null);
-const stageSize = reactive({ width: 960, height: 720 });
-const viewport = reactive({ x: 0, y: 0, scale: 1 });
-const draft = ref<DraftWall | null>(null);
-const hoverPoint = ref<Point | null>(null);
-const snapTarget = ref<SnapCandidate | null>(null);
-const isPanning = ref(false);
-const lastPanPoint = ref<Point | null>(null);
-const hasFitted = ref(false);
-const lastPointerButton = ref<number | null>(null);
 
-const resizeObserver = new ResizeObserver(() => {
-  measureStage();
+const {
+  stageSize,
+  viewport,
+  stageConfig,
+  viewportConfig,
+  isPanning,
+  fitView,
+  resetFit,
+  stageToImagePoint,
+  startPan,
+  updatePan,
+  stopPan,
+  consumePointerButton,
+  onWheel
+} = useCanvasViewport({
+  containerRef,
+  stageRef,
+  image: toRef(props, 'image')
 });
 
-const stageConfig = computed(() => ({
-  width: stageSize.width,
-  height: stageSize.height
-}));
+const {
+  draft,
+  snapTarget,
+  wallEndpointSnapPoints,
+  draftLinePoints,
+  addDraftPoint,
+  addDraftPointOnWall,
+  updateDraftPreview,
+  finishDraft,
+  cancelDraft,
+  clearSelection
+} = useCanvasDraft({
+  image: toRef(props, 'image'),
+  walls: toRef(props, 'walls'),
+  candidateCorners: toRef(props, 'candidateCorners'),
+  selectedWallId: toRef(props, 'selectedWallId'),
+  wallWidthPx: toRef(props, 'wallWidthPx'),
+  snapRadiusPx: toRef(props, 'snapRadiusPx'),
+  snapToCorners: toRef(props, 'snapToCorners'),
+  stageToImagePoint,
+  emitCreateWall: (wall) => emit('create-wall', wall),
+  emitSelectWall: (wallId) => emit('select-wall', wallId),
+  emitDraftState: (state) => emit('draft-state', state)
+});
 
-const viewportConfig = computed(() => ({
-  x: viewport.x,
-  y: viewport.y,
-  scaleX: viewport.scale,
-  scaleY: viewport.scale
-}));
+const { imageElement } = useCanvasImage({
+  image: toRef(props, 'image'),
+  resetTransientState: () => {
+    cancelDraft();
+    resetFit();
+  },
+  onImageReady: fitView
+});
 
 const stageBackground = computed(() =>
   props.theme === 'dark' ? '#111827' : '#eef3f8'
 );
-
 const boardBackground = computed(() =>
   props.theme === 'dark' ? '#0f172a' : '#ffffff'
 );
-
 const boardShadowColor = computed(() =>
   props.theme === 'dark' ? 'rgba(15, 23, 42, 0.38)' : 'rgba(15, 23, 42, 0.12)'
 );
-
 const displayCornerRadius = computed(() => 3.5 / viewport.scale);
 const snapRingRadius = computed(() => 8 / viewport.scale);
 const wallEndpointRadius = computed(() => 4.6 / viewport.scale);
 const wallStrokeColor = '#ff6b35';
-
-const wallEndpointSnapPoints = computed<SnapCandidate[]>(() => {
-  const pointMap = new Map<string, SnapCandidate>();
-
-  for (const wall of props.walls) {
-    const endpoints = [wall.points[0], wall.points[wall.points.length - 1]];
-    endpoints.forEach((point, index) => {
-      if (!point) return;
-
-      const roundedPoint = roundPoint(point);
-      const key = `${roundedPoint.x}:${roundedPoint.y}`;
-      const existing = pointMap.get(key);
-      if (existing) {
-        existing.cornerId = existing.cornerId ?? point.cornerId ?? null;
-        return;
-      }
-
-      pointMap.set(key, {
-        id: `${wall.id}:${index === 0 ? 'start' : 'end'}`,
-        x: point.x,
-        y: point.y,
-        source: 'wall-endpoint',
-        cornerId: point.cornerId ?? null
-      });
-    });
-  }
-
-  return [...pointMap.values()];
-});
-
-const draftLinePoints = computed(() => {
-  if (!draft.value) return [];
-  const points = [...draft.value.points];
-  if (hoverPoint.value) {
-    points.push({ x: hoverPoint.value.x, y: hoverPoint.value.y });
-  }
-  return flattenPoints(points);
-});
 
 const draftConfig = computed(() => ({
   points: draftLinePoints.value,
@@ -137,200 +112,9 @@ const draftConfig = computed(() => ({
   hitStrokeWidth: 18
 }));
 
-function emitDraftState() {
-  emit('draft-state', {
-    active: Boolean(draft.value),
-    points: draft.value?.points.length ?? 0
-  });
-}
-
-function measureStage() {
-  if (!containerRef.value) return;
-  const rect = containerRef.value.getBoundingClientRect();
-  stageSize.width = Math.max(360, Math.floor(rect.width));
-  stageSize.height = Math.max(360, Math.floor(rect.height));
-  if (props.image && !hasFitted.value) {
-    fitView();
-  }
-}
-
-function fitView() {
-  if (!props.image || !stageSize.width || !stageSize.height) return;
-  const padding = 48;
-  const scale = Math.min(
-    (stageSize.width - padding * 2) / props.image.width,
-    (stageSize.height - padding * 2) / props.image.height
-  );
-  viewport.scale = clamp(scale, 0.08, 6);
-  viewport.x = (stageSize.width - props.image.width * viewport.scale) / 2;
-  viewport.y = (stageSize.height - props.image.height * viewport.scale) / 2;
-  hasFitted.value = true;
-}
-
-function stageToImagePoint() {
-  if (!props.image) return null;
-  const stage = stageRef.value?.getNode?.();
-  const pointer = stage?.getPointerPosition?.();
-  if (!pointer) return null;
-
-  const point = {
-    x: (pointer.x - viewport.x) / viewport.scale,
-    y: (pointer.y - viewport.y) / viewport.scale
-  };
-
-  if (
-    point.x < 0 ||
-    point.y < 0 ||
-    point.x > props.image.width ||
-    point.y > props.image.height
-  ) {
-    return null;
-  }
-
-  return point;
-}
-
-function findNearestWithinRadius<T extends Point>(point: Point, candidates: T[]) {
-  let nearest: T | null = null;
-  let minDistance = Infinity;
-
-  for (const candidate of candidates) {
-    const currentDistance = distance(point, candidate);
-    if (currentDistance < minDistance) {
-      minDistance = currentDistance;
-      nearest = candidate;
-    }
-  }
-
-  if (nearest && minDistance <= props.snapRadiusPx) {
-    return nearest;
-  }
-
-  return null;
-}
-
-function toCandidateCornerSnap(corner: CornerPoint): SnapCandidate {
-  return {
-    id: corner.id,
-    x: corner.x,
-    y: corner.y,
-    source: 'candidate-corner',
-    cornerId: corner.id
-  };
-}
-
-function resolveSnap(point: Point) {
-  if (!props.snapToCorners) {
-    return {
-      point,
-      snap: null,
-      cornerId: null
-    };
-  }
-
-  const wallEndpoint = findNearestWithinRadius(point, wallEndpointSnapPoints.value);
-  if (wallEndpoint) {
-    return {
-      point: { x: wallEndpoint.x, y: wallEndpoint.y },
-      snap: wallEndpoint,
-      cornerId: wallEndpoint.cornerId ?? null
-    };
-  }
-
-  const nearestCorner = findNearestWithinRadius(point, props.candidateCorners);
-  if (nearestCorner) {
-    return {
-      point: { x: nearestCorner.x, y: nearestCorner.y },
-      snap: toCandidateCornerSnap(nearestCorner),
-      cornerId: nearestCorner.id
-    };
-  }
-
-  return {
-    point,
-    snap: null,
-    cornerId: null
-  };
-}
-
-function addDraftPoint() {
-  const rawPoint = stageToImagePoint();
-  if (!rawPoint) return;
-
-  const snapped = resolveSnap(rawPoint);
-  hoverPoint.value = snapped.point;
-  snapTarget.value = snapped.snap;
-
-  if (!draft.value) {
-    draft.value = {
-      widthPx: props.wallWidthPx,
-      points: [
-        {
-          ...roundPoint(snapped.point),
-          cornerId: snapped.cornerId
-        }
-      ]
-    };
-    emitDraftState();
-    return;
-  }
-
-  const lastPoint = draft.value.points[draft.value.points.length - 1];
-  if (distance(lastPoint, snapped.point) < 0.6) {
-    return;
-  }
-
-  draft.value.points.push({
-    ...roundPoint(snapped.point),
-    cornerId: snapped.cornerId
-  });
-  emitDraftState();
-}
-
-function finishDraft() {
-  if (!draft.value) return;
-
-  if (draft.value.points.length < 2) {
-    cancelDraft();
-    return;
-  }
-
-  const wall: WallStroke = {
-    id: crypto.randomUUID(),
-    type: 'centerline',
-    widthPx: draft.value.widthPx,
-    points: draft.value.points.map((point) => ({
-      x: point.x,
-      y: point.y,
-      cornerId: point.cornerId ?? null
-    })),
-    createdAt: new Date().toISOString()
-  };
-
-  draft.value = null;
-  hoverPoint.value = null;
-  snapTarget.value = null;
-  emitDraftState();
-  emit('create-wall', wall);
-}
-
-function cancelDraft() {
-  draft.value = null;
-  hoverPoint.value = null;
-  snapTarget.value = null;
-  emitDraftState();
-}
-
-function clearSelection() {
-  if (props.selectedWallId) {
-    emit('select-wall', null);
-  }
-}
-
 function onStageClick(evt: KonvaEventObject<MouseEvent>) {
   if (!props.image) return;
-  const pointerButton = lastPointerButton.value ?? evt.evt.button;
-  lastPointerButton.value = null;
+  const pointerButton = consumePointerButton(evt.evt.button);
   if (pointerButton !== 0 || isPanning.value) return;
 
   if (!draft.value) {
@@ -339,67 +123,25 @@ function onStageClick(evt: KonvaEventObject<MouseEvent>) {
   addDraftPoint();
 }
 
-function onStageMouseMove(_evt: KonvaEventObject<MouseEvent>) {
+function onWallClick(wall: WallStroke, evt: KonvaEventObject<MouseEvent>) {
+  // Konva events need cancelBubble instead of Vue's DOM-style .stop modifier.
+  evt.cancelBubble = true;
+
+  const pointerButton = consumePointerButton(evt.evt.button);
+  if (pointerButton !== 0 || isPanning.value) return;
+
+  if (draft.value || !props.selectedWallId) {
+    addDraftPointOnWall(wall);
+    return;
+  }
+
+  emit('select-wall', props.selectedWallId === wall.id ? null : wall.id);
+}
+
+function onStageMouseMove() {
   if (!props.image) return;
-
-  if (isPanning.value) {
-    const stage = stageRef.value?.getNode?.();
-    const pointer = stage?.getPointerPosition?.();
-    if (pointer && lastPanPoint.value) {
-      viewport.x += pointer.x - lastPanPoint.value.x;
-      viewport.y += pointer.y - lastPanPoint.value.y;
-      lastPanPoint.value = { x: pointer.x, y: pointer.y };
-    }
-    return;
-  }
-
-  if (!draft.value) return;
-  const rawPoint = stageToImagePoint();
-  if (!rawPoint) {
-    hoverPoint.value = null;
-    snapTarget.value = null;
-    return;
-  }
-
-  const snapped = resolveSnap(rawPoint);
-  hoverPoint.value = snapped.point;
-  snapTarget.value = snapped.snap;
-}
-
-function onStageMouseDown(evt: KonvaEventObject<MouseEvent>) {
-  lastPointerButton.value = evt.evt.button;
-  if (evt.evt.button !== 1 && evt.evt.button !== 2) return;
-  const stage = stageRef.value?.getNode?.();
-  const pointer = stage?.getPointerPosition?.();
-  if (!pointer) return;
-  isPanning.value = true;
-  lastPanPoint.value = { x: pointer.x, y: pointer.y };
-}
-
-function onStageMouseUp() {
-  isPanning.value = false;
-  lastPanPoint.value = null;
-}
-
-function onWheel(evt: KonvaEventObject<WheelEvent>) {
-  evt.evt.preventDefault();
-  const stage = stageRef.value?.getNode?.();
-  const pointer = stage?.getPointerPosition?.();
-  if (!pointer) return;
-
-  const oldScale = viewport.scale;
-  const mousePoint = {
-    x: (pointer.x - viewport.x) / oldScale,
-    y: (pointer.y - viewport.y) / oldScale
-  };
-
-  const direction = evt.evt.deltaY > 0 ? -1 : 1;
-  const scaleBy = direction > 0 ? 1.08 : 1 / 1.08;
-  const nextScale = clamp(oldScale * scaleBy, 0.08, 8);
-
-  viewport.scale = nextScale;
-  viewport.x = pointer.x - mousePoint.x * nextScale;
-  viewport.y = pointer.y - mousePoint.y * nextScale;
+  if (updatePan()) return;
+  updateDraftPreview();
 }
 
 function candidateCornerConfig(corner: CornerPoint) {
@@ -413,7 +155,7 @@ function candidateCornerConfig(corner: CornerPoint) {
   };
 }
 
-function wallEndpointConfig(point: SnapCandidate) {
+function wallEndpointConfig(point: { x: number; y: number }) {
   return {
     x: point.x,
     y: point.y,
@@ -426,7 +168,7 @@ function wallEndpointConfig(point: SnapCandidate) {
   };
 }
 
-function snapTargetConfig(target: SnapCandidate) {
+function snapTargetConfig(target: { x: number; y: number; source: string }) {
   const isWallEndpoint = target.source === 'wall-endpoint';
   return {
     x: target.x,
@@ -441,19 +183,19 @@ function snapTargetConfig(target: SnapCandidate) {
 
 function wallLineConfig(wall: WallStroke) {
   return {
-    points: flattenPoints(wall.points),
+    points: wall.points.flatMap((point) => [point.x, point.y]),
     stroke: wallStrokeColor,
     strokeWidth: wall.widthPx,
     lineCap: 'round',
     lineJoin: 'round',
     opacity: wall.id === props.selectedWallId ? 0.88 : 0.56,
-    listening: false
+    hitStrokeWidth: Math.max(wall.widthPx + 14, 24)
   };
 }
 
 function selectedGlowConfig(wall: WallStroke) {
   return {
-    points: flattenPoints(wall.points),
+    points: wall.points.flatMap((point) => [point.x, point.y]),
     stroke: wallStrokeColor,
     strokeWidth: wall.widthPx + 6,
     lineCap: 'round',
@@ -462,62 +204,6 @@ function selectedGlowConfig(wall: WallStroke) {
     listening: false
   };
 }
-
-watch(
-  () => props.image?.dataUrl,
-  async (dataUrl) => {
-    draft.value = null;
-    hoverPoint.value = null;
-    snapTarget.value = null;
-    emitDraftState();
-    hasFitted.value = false;
-
-    if (!dataUrl) {
-      imageElement.value = null;
-      return;
-    }
-
-    const img = new window.Image();
-    img.src = dataUrl;
-    await new Promise((resolve) => {
-      img.onload = resolve;
-      img.onerror = resolve;
-    });
-    imageElement.value = img;
-    await nextTick();
-    fitView();
-  },
-  { immediate: true }
-);
-
-watch(
-  () => props.wallWidthPx,
-  (widthPx) => {
-    if (draft.value) {
-      draft.value.widthPx = widthPx;
-    }
-  }
-);
-
-watch(
-  () => props.snapToCorners,
-  (enabled) => {
-    if (!enabled) {
-      snapTarget.value = null;
-    }
-  }
-);
-
-onMounted(() => {
-  if (containerRef.value) {
-    resizeObserver.observe(containerRef.value);
-  }
-  measureStage();
-});
-
-onBeforeUnmount(() => {
-  resizeObserver.disconnect();
-});
 
 defineExpose({
   finishDraft,
@@ -534,9 +220,9 @@ defineExpose({
       @click="onStageClick"
       @wheel="onWheel"
       @mousemove="onStageMouseMove"
-      @mousedown="onStageMouseDown"
-      @mouseup="onStageMouseUp"
-      @mouseleave="onStageMouseUp"
+      @mousedown="startPan"
+      @mouseup="stopPan"
+      @mouseleave="stopPan"
     >
       <v-layer>
         <v-rect
@@ -595,7 +281,10 @@ defineExpose({
               v-if="wall.id === selectedWallId"
               :config="selectedGlowConfig(wall)"
             />
-            <v-line :config="wallLineConfig(wall)" />
+            <v-line
+              :config="wallLineConfig(wall)"
+              @click="onWallClick(wall, $event)"
+            />
           </template>
 
           <v-line v-if="draftLinePoints.length >= 2" :config="draftConfig" />

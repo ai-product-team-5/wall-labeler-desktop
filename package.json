@@ -1,8 +1,9 @@
 {
   "name": "wall-labeler-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1-rc.1",
   "private": true,
-  "description": "桌面墙体标注器（Electron + Vue）",
+  "description": "用于平面图墙线标注、角点识别与 Mask 导出的桌面工具",
+  "author": "Zhaoyang Xin",
   "license": "MIT",
   "type": "module",
   "main": "electron/main.cjs",
