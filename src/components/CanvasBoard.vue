@@ -339,19 +339,6 @@ function onStageClick(evt: KonvaEventObject<MouseEvent>) {
   addDraftPoint();
 }
 
-function onWallClick(wallId: string, evt: KonvaEventObject<MouseEvent>) {
-  const pointerButton = lastPointerButton.value ?? evt.evt.button;
-  lastPointerButton.value = null;
-  if (pointerButton !== 0 || isPanning.value) return;
-
-  if (draft.value) {
-    addDraftPoint();
-    return;
-  }
-
-  emit('select-wall', props.selectedWallId === wallId ? null : wallId);
-}
-
 function onStageMouseMove(_evt: KonvaEventObject<MouseEvent>) {
   if (!props.image) return;
 
@@ -460,7 +447,7 @@ function wallLineConfig(wall: WallStroke) {
     lineCap: 'round',
     lineJoin: 'round',
     opacity: wall.id === props.selectedWallId ? 0.88 : 0.56,
-    hitStrokeWidth: Math.max(wall.widthPx + 10, 18)
+    listening: false
   };
 }
 
@@ -608,10 +595,7 @@ defineExpose({
               v-if="wall.id === selectedWallId"
               :config="selectedGlowConfig(wall)"
             />
-            <v-line
-              :config="wallLineConfig(wall)"
-              @click.stop="onWallClick(wall.id, $event)"
-            />
+            <v-line :config="wallLineConfig(wall)" />
           </template>
 
           <v-line v-if="draftLinePoints.length >= 2" :config="draftConfig" />

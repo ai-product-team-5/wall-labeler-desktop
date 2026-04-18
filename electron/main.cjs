@@ -10,6 +10,11 @@ const APP_ROOT = path.resolve(__dirname, '..');
 const PROJECT_VENV_ROOT = path.join(APP_ROOT, '.venv');
 const BUNDLED_PYTHON_ROOT = path.join(process.resourcesPath, 'python-runtime');
 const BUNDLED_WORKER_ROOT = path.join(process.resourcesPath, 'python');
+const BUNDLED_WORKER_BINARY = path.join(
+  process.resourcesPath,
+  'worker',
+  process.platform === 'win32' ? 'label_worker.exe' : 'label_worker'
+);
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -263,6 +268,12 @@ async function loadImagePayload(filePath) {
 }
 
 async function runPythonWorker(args, stdinData = null) {
+  const workerBinary = resolveBundledWorkerBinary();
+  if (workerBinary) {
+    const result = await spawnWorkerProcess(workerBinary, args, stdinData);
+    return JSON.parse(result);
+  }
+
   const pythonCandidates = resolvePythonCandidates();
   const scriptPath = resolvePythonWorkerScript();
   const errors = [];
@@ -285,6 +296,18 @@ async function runPythonWorker(args, stdinData = null) {
   }
 
   throw new Error('没有找到可用的 Python 解释器');
+}
+
+function resolveBundledWorkerBinary() {
+  if (!app.isPackaged) {
+    return null;
+  }
+
+  if (fssync.existsSync(BUNDLED_WORKER_BINARY)) {
+    return BUNDLED_WORKER_BINARY;
+  }
+
+  return null;
 }
 
 function resolvePythonCandidates() {
@@ -368,7 +391,7 @@ function isInsideDirectory(targetPath, parentDir) {
 function buildMissingPythonRuntimeError() {
   if (app.isPackaged) {
     return new Error(
-      `当前发布包未包含 Python 运行时。\n需要随应用附带目录：${BUNDLED_PYTHON_ROOT}\n以及 worker 脚本目录：${BUNDLED_WORKER_ROOT}`
+      `当前发布包未包含可用的 worker。\n优先期望的 worker 可执行文件：${BUNDLED_WORKER_BINARY}\n或备选 Python 运行时目录：${BUNDLED_PYTHON_ROOT}\n以及 worker 脚本目录：${BUNDLED_WORKER_ROOT}`
     );
   }
 
@@ -396,8 +419,9 @@ function buildPythonWorkerError(errors) {
 
 function spawnWorkerProcess(command, args, stdinData = null) {
   return new Promise((resolve, reject) => {
+    const workerCwd = resolveWorkerCwd();
     const child = spawn(command, args, {
-      cwd: APP_ROOT,
+      cwd: workerCwd,
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe']
     });
@@ -431,4 +455,12 @@ function spawnWorkerProcess(command, args, stdinData = null) {
     }
     child.stdin.end();
   });
+}
+
+function resolveWorkerCwd() {
+  if (app.isPackaged) {
+    return process.resourcesPath;
+  }
+
+  return APP_ROOT;
 }

@@ -11,6 +11,9 @@
     "dev:renderer": "vite --host 127.0.0.1 --port 5173",
     "typecheck": "vue-tsc --noEmit",
     "build": "npm run typecheck && vite build",
+    "prepare:icon": ".\\.venv\\Scripts\\python.exe scripts\\prepare-icon.py",
+    "build:worker": "node scripts/build-worker.mjs",
+    "dist:win": "npm run prepare:icon && npm run build && npm run build:worker && electron-builder --win portable",
     "preview": "electron electron/main.cjs"
   },
   "dependencies": {
@@ -24,8 +27,47 @@
     "@types/node": "25.6.0",
     "@vitejs/plugin-vue": "6.0.6",
     "electron": "41.2.1",
+    "electron-builder": "26.0.12",
     "typescript": "6.0.3",
     "vite": "8.0.8",
     "vue-tsc": "3.2.6"
+  },
+  "build": {
+    "appId": "com.ai-product-team-5.wall-labeler-desktop",
+    "productName": "wall-labeler-desktop",
+    "icon": "app-icon.ico",
+    "directories": {
+      "buildResources": "assets/icons",
+      "output": "release"
+    },
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/worker",
+        "to": "worker",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "app-icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-windows-${arch}.exe"
+    }
   }
 }
