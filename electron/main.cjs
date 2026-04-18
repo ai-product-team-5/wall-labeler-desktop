@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const fssync = require('node:fs');
 const { spawn } = require('node:child_process');
 
-const APP_NAME = 'Wall Label';
+const APP_NAME = 'wall-labeler-desktop';
 const PROJECT_EXTENSION = 'wall.json';
 const APP_ROOT = path.resolve(__dirname, '..');
 const PROJECT_VENV_ROOT = path.join(APP_ROOT, '.venv');
@@ -80,7 +80,7 @@ function registerIpcHandlers() {
       properties: ['openFile'],
       filters: [
         {
-          name: 'Wall Label Project',
+          name: 'wall-labeler-desktop Project',
           extensions: ['json']
         }
       ]
@@ -130,7 +130,7 @@ function registerIpcHandlers() {
         defaultPath: suggestedName,
         filters: [
           {
-            name: 'Wall Label Project',
+            name: 'wall-labeler-desktop Project',
             extensions: ['json']
           }
         ]

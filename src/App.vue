@@ -57,7 +57,7 @@ const appThemeClass = computed(() =>
   theme.value === 'dark' ? 'theme-dark' : 'theme-light'
 );
 
-const activeName = computed(() => image.value?.fileName ?? 'Wall Label');
+const activeName = computed(() => image.value?.fileName ?? 'wall-labeler-desktop');
 const projectBadge = computed(() => {
   if (!image.value) return '空';
   if (!projectPath.value) return '新建';
@@ -327,7 +327,7 @@ useKeyboardShortcuts((event) => {
       <div class="brand-block">
         <div class="brand-mark">W</div>
         <div class="brand-copy">
-          <div class="brand-title">Wall Label</div>
+          <div class="brand-title">wall-labeler-desktop</div>
           <div class="brand-subtitle">
             {{ activeName }}
             <span class="brand-badge">{{ projectBadge }}</span>

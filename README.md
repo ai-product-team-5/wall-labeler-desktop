@@ -1,4 +1,4 @@
-# Wall Label
+# wall-labeler-desktop
 
 一个面向平面图墙体标注的桌面工具。
 

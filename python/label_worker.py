@@ -308,7 +308,7 @@ def read_project_from_stdin() -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description='Wall Label worker')
+    parser = argparse.ArgumentParser(description='wall-labeler-desktop worker')
     subparsers = parser.add_subparsers(dest='command', required=True)
 
     detect_parser = subparsers.add_parser('detect-corners', help='detect snap corners')

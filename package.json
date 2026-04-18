@@ -1,5 +1,5 @@
 {
-  "name": "wall-labeler-electron-vue",
+  "name": "wall-labeler-desktop",
   "version": "0.1.0",
   "private": true,
   "description": "桌面墙体标注器（Electron + Vue）",
