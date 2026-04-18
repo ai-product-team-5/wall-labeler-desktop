@@ -1,1 +1,1 @@
-"""教学版 worker 包，按命令行入口 / IO / 算法职责拆分。"""
+"""Python worker package split by CLI, IO, and algorithm responsibilities."""

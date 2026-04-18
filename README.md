@@ -1,54 +1,29 @@
 # wall-labeler-desktop
 
-一个用于学习 `Electron + Vue + Python worker` 分层方式的桌面样板项目。  
-业务仍然是墙体标注，但这次更强调“怎么读、怎么拆、怎么扩展”。
+一个用于室内平面图墙体标注、角点辅助识别与 `mask` 导出的桌面工具，
+服务于小组室内平面图导航项目的数据准备流程。
 
-## 这个样板想帮你学什么
+## 项目用途
 
-- Electron 主进程、preload、renderer 的边界
-- Vue 组件怎么从“大文件”拆成 layout / panel / composable
-- 为什么桌面项目里可以先用 `IPC + Python CLI worker`，不必一开始就上 FastAPI
-- 如何把 Python 能力封装成一个稳定的命令行入口，再由 Electron 调用
+这个工具当前主要承担三类工作：
 
-## 对象层级原则
+- 导入室内平面图并做人工墙线标注
+- 基于图像自动识别候选角点，辅助标注
+- 导出项目文件和墙体 `mask`，供后续流程使用
 
-这个版本除了目录分层，也刻意保持对象分层一致：
+## 当前能力
 
-- 前端应用层统一看 `editor.state / editor.view / editor.actions / editor.controls`
-- 跨层桥接统一看 `dialogs / projects / worker`
-
-也就是说：
-
-- 在 Vue 里先看 `editor`
-- 在 renderer 到 Electron 的桥接里先看 `desktopClient`
-- 在 preload 里先看 `window.api`
-
-每一层都先给你“几个大对象”，再进入细节。
-
-## 推荐阅读顺序
-
-1. [src/main.ts](src/main.ts)
-2. [src/App.vue](src/App.vue)
-3. `src/components/editor/*`
-4. `src/composables/useProjectEditor.ts`
-5. `src/services/desktop-client.ts`
-6. [electron/preload.cjs](electron/preload.cjs)
-7. [electron/main.cjs](electron/main.cjs) 和 `electron/main/*`
-8. [python/label_worker.py](python/label_worker.py) 和 `python/worker/*`
-
-更完整的分层说明见 [docs/architecture.md](docs/architecture.md)。
-
-## 现在保留的功能
-
-- 导入单张图片
-- 自动识别候选拐点
-- 吸附式画墙（中心线 + 宽度）
-- 选中线并删除
+- 导入单张平面图
+- 自动识别候选角点
+- 以中心线 + 宽度的方式画墙
+- 吸附到候选角点和已有墙线端点
+- 选中、取消选择和删除线段
 - 保存项目 JSON
 - 导出像素级 `mask.png`
-- 浅色 / 深色主题切换
+- 支持浅色 / 深色主题
+- 可打包为 Windows portable 可执行文件
 
-## 技术栈
+## 技术实现
 
 - Electron
 - Vue 3 + TypeScript
@@ -56,7 +31,13 @@
 - vue-konva / Konva
 - Python + OpenCV
 
-## 目录
+项目内部采用 `Electron IPC + Python worker` 的方式调用图像处理能力：
+
+- renderer 负责界面和交互
+- Electron 主进程负责文件系统和 worker 调度
+- Python worker 负责角点检测与 mask 导出
+
+## 目录结构
 
 ```text
 .
@@ -102,11 +83,13 @@
 └─ vite.config.ts
 ```
 
-## 安装依赖
+`docs/architecture.md` 记录的是实现分层和模块边界，便于维护代码和后续开发。
+
+## 环境准备
 
 ### Node
 
-推荐直接使用较新的 Node 版本。
+推荐使用较新的 Node 版本。
 
 ### Python
 
@@ -130,22 +113,15 @@ macOS / Linux 安装依赖：
 ./.venv/bin/python -m pip install -r python/requirements.txt
 ```
 
-Electron 主进程只会尝试：
-
-- 开发环境：项目根目录下的 `.venv`
-- 打包环境：应用资源目录里的 `python-runtime/` 和 `python/label_worker.py`
-
-不会回退到系统 `python` / `py`。
-
 ### 前端依赖
 
 ```bash
 npm install
 ```
 
-## 开发与校验
+## 开发运行
 
-开发运行：
+启动开发环境：
 
 ```bash
 npm run dev
@@ -157,36 +133,35 @@ npm run dev
 npm run typecheck
 ```
 
-预览生产构建：
+构建前端并本地预览：
 
 ```bash
 npm run build
 npm run preview
 ```
 
-## 为什么这里用 Electron IPC + Python worker
+## Windows 打包
 
-这个项目是一个本地桌面工具，当前目标是：
+构建 Python worker：
 
-- 学清楚 Electron 分层
-- 学清楚 Vue 组件和状态组织
-- 给 Python 能力提供一个清晰的桌面调用样板
+```bash
+npm run build:worker
+```
 
-所以这里没有引入 FastAPI，而是选择：
+构建 Windows portable 包：
 
-- renderer 只调用 `desktop-client`
-- renderer 内部继续按 `state / view / actions / controls` 组织应用状态
-- preload 暴露最小 `window.api`
-- `window.api` 继续按 `dialogs / projects / worker` 分组
-- main 通过 IPC 处理文件和 worker 调用
-- Python 通过命令行入口接收参数 / stdin，再输出 JSON
+```bash
+npm run dist:win
+```
 
-这个模式更适合本地工具，也更接近“以后不走 FastAPI，直接调用 Python 能力”的样板。
+打包结果输出到：
+
+- `release/`
 
 ## 交互说明
 
 - 左键：画点 / 选线
-- 中键拖动：平移画布
+- 中键或右键拖动：平移画布
 - 滚轮：缩放
 - Enter：完成当前线
 - Esc：取消当前线
@@ -195,7 +170,7 @@ npm run preview
 - Delete / Backspace：删除已选线
 - Ctrl/Cmd + S：保存
 
-## 数据格式
+## 数据输出
 
 ### 项目文件
 
@@ -204,13 +179,24 @@ npm run preview
 核心字段：
 
 - `image`：原图路径与尺寸
-- `candidateCorners`：候选拐点
+- `candidateCorners`：候选角点
 - `walls`：中心线 + 宽度
 - `settings`：默认宽度、吸附半径、主题等
 
-### 标签输出
+### Mask
 
 导出为 `mask.png`。
 
 - `0`：非墙
 - `255`：墙
+
+## 当前边界
+
+这个工具当前专注在“标注与导出”这一步，不负责：
+
+- 导航推理本身
+- 路径规划
+- 多端同步
+- 通用后端服务
+
+也就是说，它是导航项目链路里的一个桌面标注工具，而不是整个系统的总入口。
